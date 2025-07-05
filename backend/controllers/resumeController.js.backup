@@ -1,0 +1,457 @@
+const { parseResumeFromFile } = require('../services/pdfParser');
+const { analyzeWithGemini } = require('../services/analyzer');
+const { generatePDFReport } = require('../services/reportGenerator');
+const { createSuccessResponse, createErrorResponse, cleanupFile } = require('../utils/helpers');
+
+class ResumeController {
+  async analyzeResume(req, res) {
+    let uploadedFile = null;
+    
+    try {
+      const { targetRole = '', analysisType = 'basic' } = req.validatedData;
+      
+      if (!req.file) {
+        const { response, statusCode } = createErrorResponse(
+          'No file uploaded',
+          'Please upload a PDF resume file',
+          400
+        );
+        return res.status(statusCode).json(response);
+      }
+      
+      uploadedFile = req.file.path;
+      console.log(`Starting resume analysis for file: ${req.file.filename}`);
+      
+      // Step 1: Parse PDF resume
+      console.log('Parsing PDF resume...');
+      const resumeData = await parseResumeFromFile(uploadedFile);
+      
+      if (!resumeData || !resumeData.structuredData) {
+        const { response, statusCode } = createErrorResponse(
+          'Failed to parse resume',
+          'Could not extract text from the uploaded PDF file'
+        );
+        return res.status(statusCode).json(response);
+      }
+      
+      console.log('Resume parsed successfully');
+      
+      // Step 2: Analyze with Gemini
+      console.log('Analyzing resume with AI...');
+      const analysisData = await analyzeWithGemini(resumeData.structuredData, targetRole, analysisType);
+      
+      console.log('Analysis completed successfully');
+      
+      // Step 3: Prepare response
+      const responseData = {
+        profile: resumeData.structuredData,
+        analysis: analysisData,
+        metadata: {
+          filename: req.file.filename,
+          originalName: req.file.originalname,
+          fileSize: req.file.size,
+          analyzedAt: new Date().toISOString(),
+          targetRole: targetRole,
+          analysisType: analysisType,
+          pages: resumeData.metadata?.pages || 1
+        },
+        rawText: resumeData.rawText
+      };
+      
+      const successResponse = createSuccessResponse(
+        responseData,
+        'Resume analyzed successfully'
+      );
+      
+      res.json(successResponse);
+      
+    } catch (error) {
+      console.error('Error in analyzeResume:', error);
+      
+      const { response, statusCode } = createErrorResponse(
+        'Resume analysis failed',
+        error.message
+      );
+      
+      res.status(statusCode).json(response);
+      
+    } finally {
+      // Clean up uploaded file
+      if (uploadedFile) {
+        await cleanupFile(uploadedFile);
+      }
+    }
+  }
+
+  async generateReport(req, res) {
+    try {
+      const { 
+        profileData, 
+        analysisData, 
+        format = 'pdf',
+        includeCharts = true,
+        includeRewritten = true 
+      } = req.body;
+      
+      if (!profileData || !analysisData) {
+        const { response, statusCode } = createErrorResponse(
+          'Missing required data',
+          'Profile data and analysis data are required for report generation',
+          400
+        );
+        return res.status(statusCode).json(response);
+      }
+      
+      console.log('Generating PDF report for resume...');
+      
+      // Generate PDF report
+      const pdfDoc = await generatePDFReport(analysisData, profileData, {
+        includeCharts,
+        includeRewritten,
+        format: 'detailed'
+      });
+      
+      // Set response headers for PDF download
+      const filename = `resume-analysis-${profileData.name || 'resume'}-${Date.now()}.pdf`;
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'no-cache');
+      
+      // Pipe PDF to response
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+      
+      console.log('PDF report generated and sent successfully');
+      
+    } catch (error) {
+      console.error('Error in generateReport:', error);
+      
+      const { response, statusCode } = createErrorResponse(
+        'Report generation failed',
+        error.message
+      );
+      
+      res.status(statusCode).json(response);
+    }
+  }
+
+  async generateTailoredResume(req, res) {
+    try {
+      const { 
+        profileData, 
+        analysisData, 
+        targetRole,
+        format = 'pdf' 
+      } = req.body;
+      
+      console.log('Received request data:', {
+        hasProfileData: !!profileData,
+        hasAnalysisData: !!analysisData,
+        targetRole: targetRole,
+        hasRewrittenData: !!(analysisData && analysisData.rewritten),
+        rewrittenKeys: analysisData?.rewritten ? Object.keys(analysisData.rewritten) : []
+      });
+      
+      if (!profileData || !analysisData) {
+        const { response, statusCode } = createErrorResponse(
+          'Missing required data',
+          'Profile data and analysis data are required',
+          400
+        );
+        return res.status(statusCode).json(response);
+      }
+      
+      console.log('Generating tailored resume...');
+      
+      // Use rewritten content from analysis if available, otherwise generate it
+      let tailoredProfile = { ...profileData };
+      
+      if (analysisData.rewritten && Object.keys(analysisData.rewritten).length > 0) {
+        console.log('Using existing rewritten content');
+        // Use existing rewritten content
+        if (analysisData.rewritten.headline) {
+          tailoredProfile.headline = analysisData.rewritten.headline;
+        }
+        
+        if (analysisData.rewritten.summary) {
+          tailoredProfile.summary = analysisData.rewritten.summary;
+        }
+        
+        if (analysisData.rewritten.experience) {
+          tailoredProfile.experience = analysisData.rewritten.experience;
+        }
+      } else {
+        // Generate rewritten content on-demand using Gemini
+        console.log('Generating rewritten content for tailored resume...');
+        try {
+          const { GeminiAnalyzer } = require('../services/analyzer');
+          const analyzer = new GeminiAnalyzer();
+          const rewrittenContent = await analyzer.rewriteContent(profileData, targetRole);
+          
+          console.log('Generated rewritten content:', {
+            hasHeadline: !!rewrittenContent.headline,
+            hasSummary: !!rewrittenContent.summary,
+            hasExperience: !!rewrittenContent.experience
+          });
+          
+          if (rewrittenContent.headline) {
+            tailoredProfile.headline = rewrittenContent.headline;
+          }
+          
+          if (rewrittenContent.summary) {
+            tailoredProfile.summary = rewrittenContent.summary;
+          }
+          
+          if (rewrittenContent.experience) {
+            tailoredProfile.experience = rewrittenContent.experience;
+          }
+        } catch (rewriteError) {
+          console.error('Error generating rewritten content:', rewriteError);
+          // Continue with original profile data if rewriting fails
+        }
+      }
+      
+      // Generate a clean resume PDF (different from analysis report)
+      const pdfDoc = await this.generateTailoredResumePDF(tailoredProfile, targetRole);
+      
+      // Set response headers for PDF download
+      const filename = `tailored-resume-${targetRole ? targetRole.replace(/\s+/g, '-') : 'optimized'}-${Date.now()}.pdf`;
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'no-cache');
+      
+      // Pipe PDF to response
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+      
+      console.log('Tailored resume generated and sent successfully');
+      
+    } catch (error) {
+      console.error('Error in generateTailoredResume:', error);
+      
+      const { response, statusCode } = createErrorResponse(
+        'Tailored resume generation failed',
+        error.message
+      );
+      
+      res.status(statusCode).json(response);
+    }
+  }
+
+  async generateTailoredResumePDF(profileData, targetRole) {
+    try {
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument({
+        size: 'A4',
+        margins: { top: 50, bottom: 50, left: 50, right: 50 }
+      });
+
+      console.log('Generating PDF with profile data:', {
+        name: profileData.name,
+        hasHeadline: !!profileData.headline,
+        hasSummary: !!profileData.summary,
+        experienceCount: profileData.experience?.length || 0,
+        educationCount: profileData.education?.length || 0,
+        skillsCount: profileData.skills?.length || 0
+      });
+
+      // Header with name and contact
+      doc.fontSize(22)
+         .fillColor('#1f2937')
+         .text(profileData.name || 'Your Name', { align: 'center' });
+      
+      if (profileData.headline) {
+        doc.fontSize(14)
+           .fillColor('#374151')
+           .text(profileData.headline, { align: 'center' });
+      }
+      
+      // Contact information
+      const contactInfo = [];
+      if (profileData.email) contactInfo.push(profileData.email);
+      if (profileData.phone) contactInfo.push(profileData.phone);
+      if (profileData.location) contactInfo.push(profileData.location);
+      
+      if (contactInfo.length > 0) {
+        doc.fontSize(10)
+           .fillColor('#6b7280')
+           .text(contactInfo.join(' | '), { align: 'center' });
+      }
+      
+      doc.moveDown(1);
+      
+      // Professional Summary
+      if (profileData.summary) {
+        doc.fontSize(16)
+           .fillColor('#1f2937')
+           .text('Professional Summary');
+        
+        doc.moveDown(0.3);
+        
+        doc.fontSize(11)
+           .fillColor('#374151')
+           .text(profileData.summary, { align: 'justify' });
+        
+        doc.moveDown(0.8);
+      }
+      
+      // Experience
+      if (profileData.experience && profileData.experience.length > 0) {
+        doc.fontSize(16)
+           .fillColor('#1f2937')
+           .text('Professional Experience');
+        
+        doc.moveDown(0.3);
+        
+        profileData.experience.forEach((exp, index) => {
+          doc.fontSize(13)
+             .fillColor('#1f2937')
+             .text(exp.title || 'Position Title', { continued: true })
+             .fontSize(11)
+             .fillColor('#374151')
+             .text(` | ${exp.company || 'Company Name'}`, { continued: false });
+          
+          if (exp.duration) {
+            doc.fontSize(10)
+               .fillColor('#6b7280')
+               .text(exp.duration);
+          }
+          
+          if (exp.description) {
+            doc.fontSize(10)
+               .fillColor('#374151')
+               .text(exp.description, { align: 'justify' });
+          }
+          
+          if (index < profileData.experience.length - 1) {
+            doc.moveDown(0.5);
+          }
+        });
+        
+        doc.moveDown(0.8);
+      }
+      
+      // Skills
+      if (profileData.skills && profileData.skills.length > 0) {
+        doc.fontSize(16)
+           .fillColor('#1f2937')
+           .text('Technical Skills');
+        
+        doc.moveDown(0.3);
+        
+        doc.fontSize(10)
+           .fillColor('#374151')
+           .text(profileData.skills.join(' • '));
+        
+        doc.moveDown(0.8);
+      }
+      
+      // Education
+      if (profileData.education && profileData.education.length > 0) {
+        doc.fontSize(16)
+           .fillColor('#1f2937')
+           .text('Education');
+        
+        doc.moveDown(0.3);
+        
+        profileData.education.forEach((edu, index) => {
+          doc.fontSize(12)
+             .fillColor('#1f2937')
+             .text(edu.degree || 'Degree', { continued: true })
+             .fontSize(11)
+             .fillColor('#374151')
+             .text(` | ${edu.school || 'Institution'}`, { continued: false });
+          
+          if (edu.year) {
+            doc.fontSize(10)
+               .fillColor('#6b7280')
+               .text(edu.year);
+          }
+          
+          if (index < profileData.education.length - 1) {
+            doc.moveDown(0.3);
+          }
+        });
+      }
+      
+      return doc;
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      throw error;
+    }
+  }
+
+  async validateFile(req, res) {
+    try {
+      if (!req.file) {
+        return res.json({
+          valid: false,
+          message: 'No file uploaded'
+        });
+      }
+      
+      const validTypes = ['application/pdf'];
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      
+      let isValid = true;
+      let message = 'File is valid';
+      
+      if (!validTypes.includes(req.file.mimetype)) {
+        isValid = false;
+        message = 'Only PDF files are allowed';
+      } else if (req.file.size > maxSize) {
+        isValid = false;
+        message = 'File size must be less than 5MB';
+      }
+      
+      res.json({
+        valid: isValid,
+        message: message,
+        fileInfo: {
+          name: req.file.originalname,
+          size: req.file.size,
+          type: req.file.mimetype
+        }
+      });
+      
+      // Clean up the uploaded file if validation failed
+      if (!isValid && req.file.path) {
+        await cleanupFile(req.file.path);
+      }
+      
+    } catch (error) {
+      console.error('Error in validateFile:', error);
+      res.json({
+        valid: false,
+        message: 'Error validating file'
+      });
+    }
+  }
+
+  async getUploadStatus(req, res) {
+    try {
+      res.json({
+        status: 'ready',
+        message: 'File upload service is available',
+        maxFileSize: '5MB',
+        allowedTypes: ['application/pdf'],
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('Error in getUploadStatus:', error);
+      
+      const { response, statusCode } = createErrorResponse(
+        'Failed to get upload status',
+        error.message
+      );
+      
+      res.status(statusCode).json(response);
+    }
+  }
+}
+
+module.exports = new ResumeController();
