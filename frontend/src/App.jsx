@@ -5,41 +5,18 @@ import {
   Typography, 
   Container, 
   Box,
-  Tabs,
-  Tab,
   Paper
 } from '@mui/material';
-import { LinkedIn, Description } from '@mui/icons-material';
+import { LinkedIn } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 
 import ProfileForm from './components/ProfileForm';
 import Results from './components/Results';
 import './App.css';
 
-function TabPanel({ children, value, index, ...other }) {
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`tabpanel-${index}`}
-      aria-labelledby={`tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ p: { xs: 2, md: 3 } }}>{children}</Box>}
-    </div>
-  );
-}
-
 function App() {
-  const [tabValue, setTabValue] = useState(0);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  const handleTabChange = (event, newValue) => {
-    setTabValue(newValue);
-    // Reset results when switching tabs
-    setAnalysisResults(null);
-  };
 
   const handleAnalysisStart = () => {
     setIsAnalyzing(true);
@@ -115,47 +92,14 @@ function App() {
                 px: { xs: 1, md: 0 }
               }}
             >
-              Get AI-powered insights to improve your LinkedIn profile and resume.
+              Get AI-powered insights to improve your LinkedIn profile.
             </Typography>
           </Box>
 
-          {/* Analysis Section */}
+          {/* LinkedIn Analysis Section */}
           {!analysisResults ? (
             <Paper elevation={2} sx={{ borderRadius: { xs: 2, md: 3 }, overflow: 'hidden', mx: { xs: 0, sm: 1 } }}>
-              {/* Tab Navigation */}
-              <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                <Tabs 
-                  value={tabValue} 
-                  onChange={handleTabChange} 
-                  aria-label="analysis type tabs"
-                  centered
-                  variant="fullWidth"
-                  sx={{
-                    '& .MuiTab-root': {
-                      fontSize: { xs: '0.875rem', md: '1rem' },
-                      minHeight: { xs: 56, md: 72 }
-                    }
-                  }}
-                >
-                  <Tab 
-                    icon={<LinkedIn />} 
-                    label="LinkedIn Profile" 
-                    id="tab-0"
-                    aria-controls="tabpanel-0"
-                    sx={{ flexDirection: { xs: 'column', sm: 'row' } }}
-                  />
-                  <Tab 
-                    icon={<Description />} 
-                    label="Resume Upload" 
-                    id="tab-1"
-                    aria-controls="tabpanel-1"
-                    sx={{ flexDirection: { xs: 'column', sm: 'row' } }}
-                  />
-                </Tabs>
-              </Box>
-
-              {/* Tab Content */}
-              <TabPanel value={tabValue} index={0}>
+              <Box sx={{ p: { xs: 2, md: 3 } }}>
                 <ProfileForm
                   type="linkedin"
                   onAnalysisStart={handleAnalysisStart}
@@ -163,23 +107,12 @@ function App() {
                   onAnalysisError={handleAnalysisError}
                   isAnalyzing={isAnalyzing}
                 />
-              </TabPanel>
-
-              <TabPanel value={tabValue} index={1}>
-                <ProfileForm
-                  type="resume"
-                  onAnalysisStart={handleAnalysisStart}
-                  onAnalysisComplete={handleAnalysisComplete}
-                  onAnalysisError={handleAnalysisError}
-                  isAnalyzing={isAnalyzing}
-                />
-              </TabPanel>
+              </Box>
             </Paper>
           ) : (
-            /* Results Section */
             <Results 
               results={analysisResults}
-              analysisType={tabValue === 0 ? 'linkedin' : 'resume'}
+              analysisType="linkedin"
               onNewAnalysis={() => {
                 setAnalysisResults(null);
                 setIsAnalyzing(false);
@@ -207,7 +140,7 @@ function App() {
             align="center"
             sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}
           >
-           © 2025 LinkedIn Profile Analyzer | Powered by AI | Built by Kavin Anand
+            © 2025 LinkedIn Profile Analyzer | Powered by AI | Built by Kavin Anand
           </Typography>
           <Typography 
             variant="caption" 
