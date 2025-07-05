@@ -38,7 +38,6 @@ function App() {
       {/* Header */}
       <AppBar position="static" elevation={0} sx={{ background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' }}>
         <Toolbar sx={{ minHeight: { xs: 56, md: 64 } }}>
-          <LinkedIn sx={{ mr: 2, fontSize: { xs: '1.5rem', md: '1.75rem' } }} />
           <Typography 
             variant="h6" 
             component="div" 
@@ -140,7 +139,7 @@ function App() {
             align="center"
             sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}
           >
-            © 2025 LinkedIn Profile Analyzer | Powered by AI | Built by Kavin Anand
+            © 2025 
           </Typography>
           <Typography 
             variant="caption" 
