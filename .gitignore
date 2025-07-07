@@ -147,3 +147,5 @@ session.json
 # Test reports
 test-report.pdf
 .vercel
+
+backend_chat/venv/
